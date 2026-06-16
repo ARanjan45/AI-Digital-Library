@@ -60,7 +60,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
         const lang = SUPPORTED_LANGUAGES.find(l => l.name === data.book.language);
         if (lang) { setSelectedLanguage(lang.code); setSelectedLanguageName(lang.name); }
       }
-    } catch {} finally { setLoading(false); }
+    } catch { } finally { setLoading(false); }
   };
 
   const fetchProgress = async () => {
@@ -68,7 +68,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
       const res = await fetch(`/api/progress?bookId=${params.id}`);
       const data = await res.json();
       setProgress(data.progress);
-    } catch {}
+    } catch { }
   };
 
   // Voice call
@@ -111,7 +111,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
       const res = await fetch("/api/quiz", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookId: params.id, language: selectedLanguageName }) });
       const data = await res.json();
       setQuiz(data.questions || []);
-    } catch {} finally { setQuizLoading(false); }
+    } catch { } finally { setQuizLoading(false); }
   };
 
   const submitQuiz = async () => {
@@ -123,52 +123,44 @@ export default function BookPage({ params }: { params: { id: string } }) {
   // Summary
   // Summary
   const generateSummary = async (withAudio = false) => {
-    if (withAudio) { 
-      setAudioLoading(true); 
-    } else { 
-      setSummaryLoading(true); 
-      setSummary(""); 
+    if (withAudio) {
+      setAudioLoading(true);
+    } else {
+      setSummaryLoading(true);
+      setSummary("");
     }
 
     try {
-      const res = await fetch("/api/summary", { 
-        method: "POST", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify({ 
-          bookId: params.id, 
-          targetLanguage: selectedLanguage, 
-          languageName: selectedLanguageName, 
-          audio: withAudio 
-        }) 
+      const res = await fetch("/api/summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookId: params.id,
+          targetLanguage: selectedLanguage,
+          languageName: selectedLanguageName,
+          audio: withAudio
+        })
       });
 
       if (withAudio) {
-        const contentType = res.headers.get("content-type");
-        
-        // Safety check: If backend fallback to JSON happened, don't pass it to the audio player
-        if (contentType && contentType.includes("application/json")) {
+        const contentType = res.headers.get("content-type") || "";
+
+        if (contentType.includes("application/json")) {
           const data = await res.json();
-          alert("TTS Generation failed. Here is the text summary instead.");
           setSummary(data.summary || "");
           return;
         }
 
-        // Convert the audio buffer to a reliable Base64 Data URL
-        const arrayBuffer = await res.arrayBuffer();
-        const base64Audio = btoa(
-          new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
-        );
-        
-        const audioUrl = `data:audio/wav;base64,${base64Audio}`;
-        const audio = new Audio(audioUrl);
-        
-        audio.oncanplaythrough = () => {
-          audio.play().catch(err => console.error("Playback failed:", err));
-        };
-        
-        audio.onerror = (e) => {
-          console.error("Audio element error details:", e);
-        };
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => URL.revokeObjectURL(url);
+        try {
+          await audio.play();
+        } catch (err) {
+          console.error("Playback failed:", err);
+          window.open(url, "_blank");
+        }
 
       } else {
         const data = await res.json();
@@ -176,9 +168,9 @@ export default function BookPage({ params }: { params: { id: string } }) {
       }
     } catch (err) {
       console.error("Summary processing failed", err);
-    } finally { 
-      setSummaryLoading(false); 
-      setAudioLoading(false); 
+    } finally {
+      setSummaryLoading(false);
+      setAudioLoading(false);
     }
   };
 
@@ -246,7 +238,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
             </p>
             {callStatus === "active" && isSpeaking && (
               <div className="flex gap-1 items-end h-6">
-                {[1,2,3,4,5].map(i => <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.1}s` }} />)}
+                {[1, 2, 3, 4, 5].map(i => <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.1}s` }} />)}
               </div>
             )}
           </div>
@@ -301,7 +293,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
                     </div>
                   </div>
                 ))}
-                {chatLoading && <div className="flex justify-start"><div className="bg-surface-3 border border-border rounded-2xl rounded-bl-sm px-4 py-3"><div className="flex gap-1">{[0,1,2].map(i => <div key={i} className="w-2 h-2 bg-primary-light rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}</div></div></div>}
+                {chatLoading && <div className="flex justify-start"><div className="bg-surface-3 border border-border rounded-2xl rounded-bl-sm px-4 py-3"><div className="flex gap-1">{[0, 1, 2].map(i => <div key={i} className="w-2 h-2 bg-primary-light rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}</div></div></div>}
                 <div ref={chatEndRef} />
               </div>
               <div className="flex gap-3">
@@ -325,12 +317,12 @@ export default function BookPage({ params }: { params: { id: string } }) {
                 <div className="text-center py-12"><Brain className="w-12 h-12 text-text-muted mx-auto mb-3" /><p className="text-text-secondary">Click "Generate Quiz" to create MCQs from this book</p><p className="text-text-muted text-sm mt-1">Questions in: {selectedLanguageName}</p></div>
               )}
 
-              {quizSubmitted && <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 mb-6 text-center"><p className="text-primary-light font-bold text-xl">{score}/{quiz.length} Correct 🎉</p><p className="text-text-secondary text-sm mt-1">{Math.round((score/quiz.length)*100)}% score</p></div>}
+              {quizSubmitted && <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 mb-6 text-center"><p className="text-primary-light font-bold text-xl">{score}/{quiz.length} Correct 🎉</p><p className="text-text-secondary text-sm mt-1">{Math.round((score / quiz.length) * 100)}% score</p></div>}
 
               <div className="space-y-6">
                 {quiz.map((q, i) => (
                   <div key={i} className="bg-surface-3 rounded-2xl p-5">
-                    <p className="text-text-primary font-medium mb-4">{i+1}. {q.question}</p>
+                    <p className="text-text-primary font-medium mb-4">{i + 1}. {q.question}</p>
                     <div className="space-y-2">
                       {q.options.map((opt) => {
                         const letter = opt[0];
@@ -397,7 +389,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
                     <p className="text-text-muted text-xs mt-2">Page {progress.currentPage} of {progress.totalPages}</p>
                   </div>
                   <div className="grid grid-cols-3 gap-4">
-                    {[{ label: "Time Spent", value: `${progress.timeSpentMinutes}m` }, { label: "Quiz Attempts", value: progress.quizScores?.length || 0 }, { label: "Best Score", value: progress.quizScores?.length ? `${Math.max(...progress.quizScores.map((s: any) => Math.round(s.score/s.total*100)))}%` : "—" }].map(({ label, value }) => (
+                    {[{ label: "Time Spent", value: `${progress.timeSpentMinutes}m` }, { label: "Quiz Attempts", value: progress.quizScores?.length || 0 }, { label: "Best Score", value: progress.quizScores?.length ? `${Math.max(...progress.quizScores.map((s: any) => Math.round(s.score / s.total * 100)))}%` : "—" }].map(({ label, value }) => (
                       <div key={label} className="bg-surface-3 rounded-xl p-4 text-center"><div className="text-xl font-bold gradient-text mb-1">{value}</div><div className="text-text-muted text-sm">{label}</div></div>
                     ))}
                   </div>
