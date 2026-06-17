@@ -125,7 +125,8 @@ export default function BookPage({ params }: { params: { id: string } }) {
   const generateSummary = async (withAudio = false) => {
     if (withAudio) {
       setAudioLoading(true);
-    } else {
+    }
+    else {
       setSummaryLoading(true);
       setSummary("");
     }
@@ -355,6 +356,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
           )}
 
           {/* Summary */}
+          {/* Summary */}
           {activeTab === "summary" && (
             <div>
               <div className="flex items-center justify-between mb-6">
@@ -363,9 +365,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
                   <button onClick={() => generateSummary(false)} disabled={summaryLoading} className="btn-gradient px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50">
                     {summaryLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</> : "Get Summary"}
                   </button>
-                  <button onClick={() => generateSummary(true)} disabled={audioLoading || !summary} className="border border-border text-text-secondary hover:border-primary px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50 transition-all">
-                    {audioLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Volume2 className="w-4 h-4" />} Listen
-                  </button>
+                  {/* Listen button HATA DIYA */}
                 </div>
               </div>
               {!summary && !summaryLoading && (

@@ -4,11 +4,12 @@ const nextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "res.cloudinary.com" },
       { protocol: "https", hostname: "img.clerk.com" },
+      { protocol: "https", hostname: "*.s3.*.amazonaws.com" },  // ← yeh add karo
+      { protocol: "https", hostname: "*.s3.amazonaws.com" },    // ← aur yeh
     ],
   },
   experimental: {
     serverComponentsExternalPackages: ["pdf-parse"],
   },
 };
-
 export default nextConfig;

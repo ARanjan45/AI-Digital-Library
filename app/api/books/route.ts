@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { connectDB } from "@/lib/mongodb";
-import { uploadPDF, uploadCover } from "@/lib/cloudinary";
+import { uploadPDFToS3, uploadCoverToS3 } from "@/lib/s3";
 import Book from "@/models/Book";
 import pdfParse from "pdf-parse";
 
@@ -90,13 +90,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Upload PDF to Cloudinary
-    const { url: pdfUrl, publicId: pdfPublicId } = await uploadPDF(pdfBuffer, title);
+    const { url: pdfUrl, publicId: pdfPublicId } = await uploadPDFToS3(pdfBuffer, title);
 
     // Upload cover if provided
     let coverUrl = "";
     if (coverFile) {
       const coverBuffer = Buffer.from(await coverFile.arrayBuffer());
-      const { url } = await uploadCover(coverBuffer, title);
+      const { url } = await uploadCoverToS3(coverBuffer, title);
       coverUrl = url;
     }
 
