@@ -1,54 +1,69 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import Vapi from "@vapi-ai/web";
-import { ArrowLeft, Mic, MicOff, BookOpen, Brain, Volume2, MessageSquare, TrendingUp, Globe, Loader2, Send, Library, CheckCircle, XCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
+import { ArrowLeft, Mic, MicOff, BookOpen, Brain, Volume2, MessageSquare, TrendingUp, Globe, Loader2, Send, Library, CheckCircle, XCircle, Trash2 } from "lucide-react";
 import { getVapiAssistantConfig } from "@/lib/vapi";
 import { SUPPORTED_LANGUAGES } from "@/lib/sarvam";
 
-interface Book { _id: string; title: string; author: string; description: string; language: string; category: string; coverUrl: string; pdfUrl: string; totalPages: number; extractedText: string; viewCount: number; }
+interface Book { _id: string; title: string; author: string; description: string; language: string; category: string; coverUrl: string; pdfUrl: string; totalPages: number; extractedText: string; viewCount: number; uploadedBy: string; }
 interface QuizQuestion { question: string; options: string[]; correctAnswer: string; explanation: string; }
 type Tab = "overview" | "chat" | "quiz" | "summary" | "progress";
 
+function DeleteButton({ bookId }: { bookId: string }) {
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!confirm("Are you sure you want to delete this book?")) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/books/${bookId}`, { method: "DELETE" });
+      if (res.ok) router.push("/library");
+    } catch {} finally { setDeleting(false); }
+  };
+
+  return (
+    <button onClick={handleDelete} disabled={deleting}
+      className="border border-red-500/30 text-red-400 hover:bg-red-500/10 px-6 py-3 rounded-xl font-semibold inline-flex items-center gap-2 transition-all disabled:opacity-50">
+      {deleting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+      {deleting ? "Deleting..." : "Delete Book"}
+    </button>
+  );
+}
+
 export default function BookPage({ params }: { params: { id: string } }) {
+  const { user } = useUser();
   const [book, setBook] = useState<Book | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [selectedLanguage, setSelectedLanguage] = useState("en-IN");
   const [selectedLanguageName, setSelectedLanguageName] = useState("English");
 
-  // Voice state
   const [vapi, setVapi] = useState<Vapi | null>(null);
   const [callStatus, setCallStatus] = useState<"idle" | "connecting" | "active" | "ended">("idle");
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // Chat state
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Quiz state
   const [quiz, setQuiz] = useState<QuizQuestion[]>([]);
   const [quizLoading, setQuizLoading] = useState(false);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
   const [score, setScore] = useState(0);
 
-  // Summary state
   const [summary, setSummary] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const [audioLoading, setAudioLoading] = useState(false);
 
-  // Progress state
   const [progress, setProgress] = useState<any>(null);
 
-  useEffect(() => {
-    fetchBook();
-    fetchProgress();
-  }, [params.id]);
-
+  useEffect(() => { fetchBook(); fetchProgress(); }, [params.id]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatHistory]);
 
   const fetchBook = async () => {
@@ -60,7 +75,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
         const lang = SUPPORTED_LANGUAGES.find(l => l.name === data.book.language);
         if (lang) { setSelectedLanguage(lang.code); setSelectedLanguageName(lang.name); }
       }
-    } catch { } finally { setLoading(false); }
+    } catch {} finally { setLoading(false); }
   };
 
   const fetchProgress = async () => {
@@ -68,10 +83,9 @@ export default function BookPage({ params }: { params: { id: string } }) {
       const res = await fetch(`/api/progress?bookId=${params.id}`);
       const data = await res.json();
       setProgress(data.progress);
-    } catch { }
+    } catch {}
   };
 
-  // Voice call
   const startVoiceCall = async () => {
     if (!book) return;
     setCallStatus("connecting");
@@ -90,7 +104,6 @@ export default function BookPage({ params }: { params: { id: string } }) {
 
   const endVoiceCall = () => { vapi?.stop(); setVapi(null); setCallStatus("idle"); };
 
-  // Text chat
   const sendChat = async () => {
     if (!chatInput.trim() || chatLoading) return;
     const msg = chatInput.trim();
@@ -104,14 +117,13 @@ export default function BookPage({ params }: { params: { id: string } }) {
     } catch { setChatHistory(h => [...h, { role: "assistant", content: "Error occurred. Please try again." }]); } finally { setChatLoading(false); }
   };
 
-  // Quiz
   const generateQuiz = async () => {
     setQuizLoading(true); setQuiz([]); setAnswers({}); setQuizSubmitted(false);
     try {
       const res = await fetch("/api/quiz", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookId: params.id, language: selectedLanguageName }) });
       const data = await res.json();
       setQuiz(data.questions || []);
-    } catch { } finally { setQuizLoading(false); }
+    } catch {} finally { setQuizLoading(false); }
   };
 
   const submitQuiz = async () => {
@@ -120,59 +132,13 @@ export default function BookPage({ params }: { params: { id: string } }) {
     await fetch("/api/quiz", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookId: params.id, score: s, total: quiz.length }) });
   };
 
-  // Summary
-  // Summary
-  const generateSummary = async (withAudio = false) => {
-    if (withAudio) {
-      setAudioLoading(true);
-    }
-    else {
-      setSummaryLoading(true);
-      setSummary("");
-    }
-
+  const generateSummary = async () => {
+    setSummaryLoading(true); setSummary("");
     try {
-      const res = await fetch("/api/summary", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bookId: params.id,
-          targetLanguage: selectedLanguage,
-          languageName: selectedLanguageName,
-          audio: withAudio
-        })
-      });
-
-      if (withAudio) {
-        const contentType = res.headers.get("content-type") || "";
-
-        if (contentType.includes("application/json")) {
-          const data = await res.json();
-          setSummary(data.summary || "");
-          return;
-        }
-
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.onended = () => URL.revokeObjectURL(url);
-        try {
-          await audio.play();
-        } catch (err) {
-          console.error("Playback failed:", err);
-          window.open(url, "_blank");
-        }
-
-      } else {
-        const data = await res.json();
-        setSummary(data.summary || "");
-      }
-    } catch (err) {
-      console.error("Summary processing failed", err);
-    } finally {
-      setSummaryLoading(false);
-      setAudioLoading(false);
-    }
+      const res = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookId: params.id, targetLanguage: selectedLanguage, languageName: selectedLanguageName, audio: false }) });
+      const data = await res.json();
+      setSummary(data.summary || "");
+    } catch {} finally { setSummaryLoading(false); }
   };
 
   if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>;
@@ -197,38 +163,28 @@ export default function BookPage({ params }: { params: { id: string } }) {
       </nav>
 
       <div className="max-w-6xl mx-auto px-6 py-8">
-        {/* Book Header */}
         <div className="flex gap-6 mb-8">
           <div className="w-32 h-44 rounded-2xl overflow-hidden bg-surface-2 border border-border flex-shrink-0">
             {book.coverUrl ? <Image src={book.coverUrl} alt={book.title} width={128} height={176} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><BookOpen className="w-10 h-10 text-primary-light opacity-50" /></div>}
           </div>
           <div className="flex-1">
-            <div className="flex items-start gap-3 mb-2">
-              <h1 className="text-3xl font-bold text-text-primary flex-1">{book.title}</h1>
-            </div>
-            <p className="text-text-secondary mb-1">by {book.author}</p>
+            <h1 className="text-3xl font-bold text-text-primary flex-1 mb-1">{book.title}</h1>
+            <p className="text-text-secondary mb-3">by {book.author}</p>
             <div className="flex flex-wrap gap-2 mb-4">
               <span className="bg-primary/20 text-primary-light text-xs px-3 py-1 rounded-full">{book.language}</span>
               <span className="bg-surface-3 text-text-secondary text-xs px-3 py-1 rounded-full">{book.category}</span>
               <span className="bg-surface-3 text-text-secondary text-xs px-3 py-1 rounded-full">{book.totalPages} pages</span>
             </div>
             <p className="text-text-secondary text-sm leading-relaxed line-clamp-3">{book.description}</p>
-
-            {/* Language Selector */}
             <div className="flex items-center gap-3 mt-4">
               <Globe className="w-4 h-4 text-text-muted" />
-              <select value={selectedLanguage} onChange={(e) => {
-                setSelectedLanguage(e.target.value);
-                const lang = SUPPORTED_LANGUAGES.find(l => l.code === e.target.value);
-                if (lang) setSelectedLanguageName(lang.name);
-              }} className="bg-surface-3 border border-border rounded-lg px-3 py-1.5 text-text-secondary text-sm focus:outline-none focus:border-primary">
+              <select value={selectedLanguage} onChange={(e) => { setSelectedLanguage(e.target.value); const lang = SUPPORTED_LANGUAGES.find(l => l.code === e.target.value); if (lang) setSelectedLanguageName(lang.name); }} className="bg-surface-3 border border-border rounded-lg px-3 py-1.5 text-text-secondary text-sm focus:outline-none focus:border-primary">
                 {SUPPORTED_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.nativeName} ({l.name})</option>)}
               </select>
               <span className="text-text-muted text-xs">AI responds in this language</span>
             </div>
           </div>
 
-          {/* Voice Call Button */}
           <div className="flex flex-col items-center gap-3">
             <button onClick={callStatus === "active" ? endVoiceCall : startVoiceCall} disabled={callStatus === "connecting"}
               className={`w-20 h-20 rounded-full flex items-center justify-center transition-all ${callStatus === "active" ? "bg-red-500 hover:bg-red-600 voice-ring" : callStatus === "connecting" ? "bg-surface-3 border border-border cursor-not-allowed" : "btn-gradient hover:scale-105 animate-glow"}`}>
@@ -238,14 +194,11 @@ export default function BookPage({ params }: { params: { id: string } }) {
               {callStatus === "idle" && "Talk to Book"}{callStatus === "connecting" && "Connecting..."}{callStatus === "active" && "Tap to End"}{callStatus === "ended" && "Call Ended"}
             </p>
             {callStatus === "active" && isSpeaking && (
-              <div className="flex gap-1 items-end h-6">
-                {[1, 2, 3, 4, 5].map(i => <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.1}s` }} />)}
-              </div>
+              <div className="flex gap-1 items-end h-6">{[1,2,3,4,5].map(i => <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.1}s` }} />)}</div>
             )}
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-1 bg-surface-2 border border-border rounded-2xl p-1 mb-6 overflow-x-auto">
           {tabs.map(({ id, label, icon: Icon }) => (
             <button key={id} onClick={() => setActiveTab(id)} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap flex-1 justify-center ${activeTab === id ? "btn-gradient text-white" : "text-text-secondary hover:text-text-primary"}`}>
@@ -254,9 +207,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
           ))}
         </div>
 
-        {/* Tab Content */}
         <div className="bg-surface-2 border border-border rounded-2xl p-6">
-          {/* Overview */}
           {activeTab === "overview" && (
             <div>
               <h2 className="text-xl font-bold text-text-primary mb-4">About this Book</h2>
@@ -269,13 +220,15 @@ export default function BookPage({ params }: { params: { id: string } }) {
                   </div>
                 ))}
               </div>
-              <a href={book.pdfUrl} target="_blank" rel="noopener noreferrer" className="btn-gradient px-6 py-3 rounded-xl font-semibold inline-flex items-center gap-2">
-                <BookOpen className="w-5 h-5" /> Open PDF
-              </a>
+              <div className="flex gap-3">
+                <a href={book.pdfUrl} target="_blank" rel="noopener noreferrer" className="btn-gradient px-6 py-3 rounded-xl font-semibold inline-flex items-center gap-2">
+                  <BookOpen className="w-5 h-5" /> Open PDF
+                </a>
+                {user && book.uploadedBy === user.id && <DeleteButton bookId={params.id} />}
+              </div>
             </div>
           )}
 
-          {/* Chat */}
           {activeTab === "chat" && (
             <div className="flex flex-col h-[500px]">
               <h2 className="text-xl font-bold text-text-primary mb-4">Chat with this Book</h2>
@@ -294,7 +247,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
                     </div>
                   </div>
                 ))}
-                {chatLoading && <div className="flex justify-start"><div className="bg-surface-3 border border-border rounded-2xl rounded-bl-sm px-4 py-3"><div className="flex gap-1">{[0, 1, 2].map(i => <div key={i} className="w-2 h-2 bg-primary-light rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}</div></div></div>}
+                {chatLoading && <div className="flex justify-start"><div className="bg-surface-3 border border-border rounded-2xl rounded-bl-sm px-4 py-3"><div className="flex gap-1">{[0,1,2].map(i => <div key={i} className="w-2 h-2 bg-primary-light rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}</div></div></div>}
                 <div ref={chatEndRef} />
               </div>
               <div className="flex gap-3">
@@ -304,7 +257,6 @@ export default function BookPage({ params }: { params: { id: string } }) {
             </div>
           )}
 
-          {/* Quiz */}
           {activeTab === "quiz" && (
             <div>
               <div className="flex items-center justify-between mb-6">
@@ -313,17 +265,14 @@ export default function BookPage({ params }: { params: { id: string } }) {
                   {quizLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</> : <><Brain className="w-4 h-4" /> Generate Quiz</>}
                 </button>
               </div>
-
               {quiz.length === 0 && !quizLoading && (
                 <div className="text-center py-12"><Brain className="w-12 h-12 text-text-muted mx-auto mb-3" /><p className="text-text-secondary">Click "Generate Quiz" to create MCQs from this book</p><p className="text-text-muted text-sm mt-1">Questions in: {selectedLanguageName}</p></div>
               )}
-
-              {quizSubmitted && <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 mb-6 text-center"><p className="text-primary-light font-bold text-xl">{score}/{quiz.length} Correct 🎉</p><p className="text-text-secondary text-sm mt-1">{Math.round((score / quiz.length) * 100)}% score</p></div>}
-
+              {quizSubmitted && <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 mb-6 text-center"><p className="text-primary-light font-bold text-xl">{score}/{quiz.length} Correct 🎉</p><p className="text-text-secondary text-sm mt-1">{Math.round((score/quiz.length)*100)}% score</p></div>}
               <div className="space-y-6">
                 {quiz.map((q, i) => (
                   <div key={i} className="bg-surface-3 rounded-2xl p-5">
-                    <p className="text-text-primary font-medium mb-4">{i + 1}. {q.question}</p>
+                    <p className="text-text-primary font-medium mb-4">{i+1}. {q.question}</p>
                     <div className="space-y-2">
                       {q.options.map((opt) => {
                         const letter = opt[0];
@@ -346,7 +295,6 @@ export default function BookPage({ params }: { params: { id: string } }) {
                   </div>
                 ))}
               </div>
-
               {quiz.length > 0 && !quizSubmitted && (
                 <button onClick={submitQuiz} disabled={Object.keys(answers).length < quiz.length} className="w-full btn-gradient py-3 rounded-xl font-semibold mt-6 disabled:opacity-50">
                   Submit Quiz ({Object.keys(answers).length}/{quiz.length} answered)
@@ -355,27 +303,21 @@ export default function BookPage({ params }: { params: { id: string } }) {
             </div>
           )}
 
-          {/* Summary */}
-          {/* Summary */}
           {activeTab === "summary" && (
             <div>
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-text-primary">AI Summary</h2>
-                <div className="flex gap-2">
-                  <button onClick={() => generateSummary(false)} disabled={summaryLoading} className="btn-gradient px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50">
-                    {summaryLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</> : "Get Summary"}
-                  </button>
-                  {/* Listen button HATA DIYA */}
-                </div>
+                <button onClick={generateSummary} disabled={summaryLoading} className="btn-gradient px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50">
+                  {summaryLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</> : "Get Summary"}
+                </button>
               </div>
               {!summary && !summaryLoading && (
                 <div className="text-center py-12"><Volume2 className="w-12 h-12 text-text-muted mx-auto mb-3" /><p className="text-text-secondary">Generate a 3-paragraph AI summary in {selectedLanguageName}</p></div>
               )}
-              {summary && <div className="prose max-w-none"><p className="text-text-secondary leading-relaxed whitespace-pre-wrap">{summary}</p></div>}
+              {summary && <p className="text-text-secondary leading-relaxed whitespace-pre-wrap">{summary}</p>}
             </div>
           )}
 
-          {/* Progress */}
           {activeTab === "progress" && (
             <div>
               <h2 className="text-xl font-bold text-text-primary mb-6">Reading Progress</h2>
@@ -389,7 +331,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
                     <p className="text-text-muted text-xs mt-2">Page {progress.currentPage} of {progress.totalPages}</p>
                   </div>
                   <div className="grid grid-cols-3 gap-4">
-                    {[{ label: "Time Spent", value: `${progress.timeSpentMinutes}m` }, { label: "Quiz Attempts", value: progress.quizScores?.length || 0 }, { label: "Best Score", value: progress.quizScores?.length ? `${Math.max(...progress.quizScores.map((s: any) => Math.round(s.score / s.total * 100)))}%` : "—" }].map(({ label, value }) => (
+                    {[{ label: "Time Spent", value: `${progress.timeSpentMinutes}m` }, { label: "Quiz Attempts", value: progress.quizScores?.length || 0 }, { label: "Best Score", value: progress.quizScores?.length ? `${Math.max(...progress.quizScores.map((s: any) => Math.round(s.score/s.total*100)))}%` : "—" }].map(({ label, value }) => (
                       <div key={label} className="bg-surface-3 rounded-xl p-4 text-center"><div className="text-xl font-bold gradient-text mb-1">{value}</div><div className="text-text-muted text-sm">{label}</div></div>
                     ))}
                   </div>
