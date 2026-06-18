@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { ArrowLeft, Mic, MicOff, BookOpen, Brain, Volume2, MessageSquare, TrendingUp, Globe, Loader2, Send, Library, CheckCircle, XCircle, Trash2 } from "lucide-react";
 import { getVapiAssistantConfig } from "@/lib/vapi";
+import PDFViewer from "@/components/PDFViewer";
 import { SUPPORTED_LANGUAGES } from "@/lib/sarvam";
 
 interface Book { _id: string; title: string; author: string; description: string; language: string; category: string; coverUrl: string; pdfUrl: string; totalPages: number; extractedText: string; viewCount: number; uploadedBy: string; }
@@ -23,7 +24,7 @@ function DeleteButton({ bookId }: { bookId: string }) {
     try {
       const res = await fetch(`/api/books/${bookId}`, { method: "DELETE" });
       if (res.ok) router.push("/library");
-    } catch {} finally { setDeleting(false); }
+    } catch { } finally { setDeleting(false); }
   };
 
   return (
@@ -62,9 +63,39 @@ export default function BookPage({ params }: { params: { id: string } }) {
   const [summaryLoading, setSummaryLoading] = useState(false);
 
   const [progress, setProgress] = useState<any>(null);
+  const [showPDF, setShowPDF] = useState(false);
 
   useEffect(() => { fetchBook(); fetchProgress(); }, [params.id]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatHistory]);
+
+  // Tracks reading time while the PDF viewer is open. Ticks every 10s, pauses
+  // when the tab is backgrounded, and pings the server once a full minute
+  // has accumulated so timeSpentMinutes increments without disturbing the
+  // saved reading position.
+  useEffect(() => {
+    if (!showPDF) return;
+
+    let secondsAccumulated = 0;
+    const interval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      secondsAccumulated += 10;
+      if (secondsAccumulated < 60) return;
+
+      const minutesToAdd = Math.floor(secondsAccumulated / 60);
+      secondsAccumulated %= 60;
+
+      fetch("/api/progress", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookId: params.id, timeSpentMinutes: minutesToAdd }),
+      })
+        .then((res) => res.json())
+        .then((data) => { if (data.progress) setProgress(data.progress); })
+        .catch(() => {});
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [showPDF, params.id]);
 
   const fetchBook = async () => {
     try {
@@ -75,7 +106,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
         const lang = SUPPORTED_LANGUAGES.find(l => l.name === data.book.language);
         if (lang) { setSelectedLanguage(lang.code); setSelectedLanguageName(lang.name); }
       }
-    } catch {} finally { setLoading(false); }
+    } catch { } finally { setLoading(false); }
   };
 
   const fetchProgress = async () => {
@@ -83,7 +114,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
       const res = await fetch(`/api/progress?bookId=${params.id}`);
       const data = await res.json();
       setProgress(data.progress);
-    } catch {}
+    } catch { }
   };
 
   const startVoiceCall = async () => {
@@ -123,7 +154,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
       const res = await fetch("/api/quiz", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookId: params.id, language: selectedLanguageName }) });
       const data = await res.json();
       setQuiz(data.questions || []);
-    } catch {} finally { setQuizLoading(false); }
+    } catch { } finally { setQuizLoading(false); }
   };
 
   const submitQuiz = async () => {
@@ -138,7 +169,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
       const res = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookId: params.id, targetLanguage: selectedLanguage, languageName: selectedLanguageName, audio: false }) });
       const data = await res.json();
       setSummary(data.summary || "");
-    } catch {} finally { setSummaryLoading(false); }
+    } catch { } finally { setSummaryLoading(false); }
   };
 
   if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>;
@@ -194,7 +225,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
               {callStatus === "idle" && "Talk to Book"}{callStatus === "connecting" && "Connecting..."}{callStatus === "active" && "Tap to End"}{callStatus === "ended" && "Call Ended"}
             </p>
             {callStatus === "active" && isSpeaking && (
-              <div className="flex gap-1 items-end h-6">{[1,2,3,4,5].map(i => <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.1}s` }} />)}</div>
+              <div className="flex gap-1 items-end h-6">{[1, 2, 3, 4, 5].map(i => <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.1}s` }} />)}</div>
             )}
           </div>
         </div>
@@ -220,12 +251,31 @@ export default function BookPage({ params }: { params: { id: string } }) {
                   </div>
                 ))}
               </div>
-              <div className="flex gap-3">
-                <a href={book.pdfUrl} target="_blank" rel="noopener noreferrer" className="btn-gradient px-6 py-3 rounded-xl font-semibold inline-flex items-center gap-2">
-                  <BookOpen className="w-5 h-5" /> Open PDF
+              <div className="flex gap-3 mb-6">
+                <button onClick={() => setShowPDF(!showPDF)} className="btn-gradient px-6 py-3 rounded-xl font-semibold inline-flex items-center gap-2">
+                  <BookOpen className="w-5 h-5" /> {showPDF ? "Hide PDF" : "Read PDF"}
+                </button>
+                <a href={book.pdfUrl} target="_blank" rel="noopener noreferrer" className="border border-border text-text-secondary hover:border-primary hover:text-text-primary px-6 py-3 rounded-xl font-semibold inline-flex items-center gap-2 transition-all">
+                  <BookOpen className="w-5 h-5" /> Open in Tab
                 </a>
                 {user && book.uploadedBy === user.id && <DeleteButton bookId={params.id} />}
               </div>
+              {showPDF && (
+                <PDFViewer
+                  pdfUrl={book.pdfUrl}
+                  bookId={params.id}
+                  onPageChange={(page, total) => {
+                    setProgress((p: any) => ({
+                      timeSpentMinutes: 0,
+                      quizScores: [],
+                      ...p,
+                      currentPage: page,
+                      totalPages: total,
+                      percentComplete: Math.round((page / total) * 100),
+                    }));
+                  }}
+                />
+              )}
             </div>
           )}
 
@@ -247,7 +297,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
                     </div>
                   </div>
                 ))}
-                {chatLoading && <div className="flex justify-start"><div className="bg-surface-3 border border-border rounded-2xl rounded-bl-sm px-4 py-3"><div className="flex gap-1">{[0,1,2].map(i => <div key={i} className="w-2 h-2 bg-primary-light rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}</div></div></div>}
+                {chatLoading && <div className="flex justify-start"><div className="bg-surface-3 border border-border rounded-2xl rounded-bl-sm px-4 py-3"><div className="flex gap-1">{[0, 1, 2].map(i => <div key={i} className="w-2 h-2 bg-primary-light rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}</div></div></div>}
                 <div ref={chatEndRef} />
               </div>
               <div className="flex gap-3">
@@ -268,11 +318,11 @@ export default function BookPage({ params }: { params: { id: string } }) {
               {quiz.length === 0 && !quizLoading && (
                 <div className="text-center py-12"><Brain className="w-12 h-12 text-text-muted mx-auto mb-3" /><p className="text-text-secondary">Click "Generate Quiz" to create MCQs from this book</p><p className="text-text-muted text-sm mt-1">Questions in: {selectedLanguageName}</p></div>
               )}
-              {quizSubmitted && <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 mb-6 text-center"><p className="text-primary-light font-bold text-xl">{score}/{quiz.length} Correct 🎉</p><p className="text-text-secondary text-sm mt-1">{Math.round((score/quiz.length)*100)}% score</p></div>}
+              {quizSubmitted && <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 mb-6 text-center"><p className="text-primary-light font-bold text-xl">{score}/{quiz.length} Correct 🎉</p><p className="text-text-secondary text-sm mt-1">{Math.round((score / quiz.length) * 100)}% score</p></div>}
               <div className="space-y-6">
                 {quiz.map((q, i) => (
                   <div key={i} className="bg-surface-3 rounded-2xl p-5">
-                    <p className="text-text-primary font-medium mb-4">{i+1}. {q.question}</p>
+                    <p className="text-text-primary font-medium mb-4">{i + 1}. {q.question}</p>
                     <div className="space-y-2">
                       {q.options.map((opt) => {
                         const letter = opt[0];
@@ -331,7 +381,7 @@ export default function BookPage({ params }: { params: { id: string } }) {
                     <p className="text-text-muted text-xs mt-2">Page {progress.currentPage} of {progress.totalPages}</p>
                   </div>
                   <div className="grid grid-cols-3 gap-4">
-                    {[{ label: "Time Spent", value: `${progress.timeSpentMinutes}m` }, { label: "Quiz Attempts", value: progress.quizScores?.length || 0 }, { label: "Best Score", value: progress.quizScores?.length ? `${Math.max(...progress.quizScores.map((s: any) => Math.round(s.score/s.total*100)))}%` : "—" }].map(({ label, value }) => (
+                    {[{ label: "Time Spent", value: `${progress.timeSpentMinutes ?? 0}m` }, { label: "Quiz Attempts", value: progress.quizScores?.length || 0 }, { label: "Best Score", value: progress.quizScores?.length ? `${Math.max(...progress.quizScores.map((s: any) => Math.round(s.score / s.total * 100)))}%` : "—" }].map(({ label, value }) => (
                       <div key={label} className="bg-surface-3 rounded-xl p-4 text-center"><div className="text-xl font-bold gradient-text mb-1">{value}</div><div className="text-text-muted text-sm">{label}</div></div>
                     ))}
                   </div>

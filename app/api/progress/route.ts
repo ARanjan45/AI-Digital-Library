@@ -32,25 +32,31 @@ export async function PUT(req: NextRequest) {
   try {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
     const { bookId, currentPage, totalPages, timeSpentMinutes } = await req.json();
     await connectDB();
 
-    const percentComplete = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0;
+    const update: any = { lastReadAt: new Date() };
+
+    // Only touch reading position if this ping actually includes it.
+    // This lets a pure time-tracking ping (no currentPage/totalPages) increment
+    // timeSpentMinutes without accidentally resetting the user's page.
+    if (typeof currentPage === "number" && typeof totalPages === "number" && totalPages > 0) {
+      const percentComplete = Math.round((currentPage / totalPages) * 100);
+      update.currentPage = currentPage;
+      update.totalPages = totalPages;
+      update.percentComplete = percentComplete;
+      if (percentComplete >= 100) update.completedAt = new Date();
+    }
+
+    if (timeSpentMinutes) {
+      update.$inc = { timeSpentMinutes };
+    }
 
     const progress = await Progress.findOneAndUpdate(
       { userId, bookId },
-      {
-        currentPage,
-        totalPages,
-        percentComplete,
-        $inc: { timeSpentMinutes: timeSpentMinutes || 0 },
-        lastReadAt: new Date(),
-        ...(percentComplete >= 100 ? { completedAt: new Date() } : {}),
-      },
-      { upsert: true, new: true }
+      update,
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
-
     return NextResponse.json({ progress });
   } catch (error) {
     return NextResponse.json({ error: "Failed to update progress" }, { status: 500 });
